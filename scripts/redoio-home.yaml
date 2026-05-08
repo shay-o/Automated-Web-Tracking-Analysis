@@ -1,0 +1,21 @@
+session: redoio-home
+start_url: https://tool.redoio.info/
+viewport:
+  width: 1280
+  height: 800
+consent:
+  strategy: ignore
+
+steps:
+  - id: load_home
+    action: goto
+    url: https://tool.redoio.info/
+    wait_for: load
+    settle:
+      wait_for_selector: '[data-testid="stApp"]'
+      wait_ms: 5000
+
+  - id: dwell
+    action: wait
+    settle:
+      wait_ms: 3000
