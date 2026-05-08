@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -105,35 +104,67 @@ _RECORD_JS = r"""
     return { css: getCSSSelector(el) };
   }
 
-  // Track the currently focused input to:
-  // (a) record fill on blur, (b) avoid double-counting click+fill on same element
-  let activeInput = null;
+  function emit(data) {
+    if (typeof window.__trackerRecord === 'function') {
+      window.__trackerRecord(data);
+    }
+  }
 
-  document.addEventListener('focusin', function (e) {
-    const el = e.target;
-    const isTextInput = (
+  // Track the currently focused input to:
+  // (a) record fill on blur/Enter, (b) avoid double-counting click+fill on same element
+  let activeInput = null;
+  let lastFillValue = null;  // deduplicate focusout after Enter
+
+  function isTextInput(el) {
+    return (
       (el.tagName === 'INPUT' && !['submit','button','checkbox','radio','file','image','range','color'].includes(el.type)) ||
       el.tagName === 'TEXTAREA' ||
       (el.isContentEditable && el.tagName !== 'BODY' && el.tagName !== 'HTML')
     );
-    activeInput = isTextInput ? el : null;
+  }
+
+  function inputValue(el) {
+    return el.isContentEditable ? el.textContent.trim() : (el.value || '').trim();
+  }
+
+  document.addEventListener('focusin', function (e) {
+    const el = e.target;
+    if (isTextInput(el)) {
+      activeInput = el;
+      lastFillValue = null;
+    } else {
+      activeInput = null;
+    }
   }, true);
 
+  // Capture fill when user presses Enter (before focus might or might not leave)
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    const el = e.target;
+    if (el !== activeInput) return;
+    const value = inputValue(el);
+    if (!value || value === lastFillValue) return;
+    lastFillValue = value;
+    emit({ type: 'fill', locator: buildLocator(el), value: value });
+  }, true);
+
+  // Also capture fill on blur in case user tabs away without pressing Enter
   document.addEventListener('focusout', function (e) {
     const el = e.target;
     if (el !== activeInput) return;
-    const value = el.isContentEditable ? el.textContent.trim() : (el.value || '').trim();
-    if (value) {
-      window.__trackerRecord({ type: 'fill', locator: buildLocator(el), value: value });
+    const value = inputValue(el);
+    if (value && value !== lastFillValue) {
+      emit({ type: 'fill', locator: buildLocator(el), value: value });
     }
     activeInput = null;
+    lastFillValue = null;
   }, true);
 
   document.addEventListener('change', function (e) {
     const el = e.target;
     if (el.tagName !== 'SELECT') return;
     const txt = el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : el.value;
-    window.__trackerRecord({ type: 'select', locator: buildLocator(el), value: txt });
+    emit({ type: 'select', locator: buildLocator(el), value: txt });
   }, true);
 
   document.addEventListener('click', function (e) {
@@ -155,7 +186,7 @@ _RECORD_JS = r"""
     if (!found) return;
     // Ignore if this is the focused text input (user clicked into an input field)
     if (found === activeInput) return;
-    window.__trackerRecord({ type: 'click', locator: buildLocator(found) });
+    emit({ type: 'click', locator: buildLocator(found) });
   }, true);
 })();
 """
@@ -273,8 +304,6 @@ def record(
         val_str = f" = {value!r}" if value else ""
         print(f"  [{atype}] {loc_str}{val_str}")
 
-    done = threading.Event()
-
     print()
     print(f"  Session : {session_name}")
     print(f"  Start   : {start_url}")
@@ -300,10 +329,13 @@ def record(
 
             page.goto(start_url, wait_until="load")
 
-            # Block until the page (or browser) closes
-            page.on("close", lambda: done.set())
-            browser.on("disconnected", lambda: done.set())
-            done.wait()
+            # Wait inside Playwright's greenlet dispatcher so expose_function
+            # callbacks can be delivered. threading.Event.wait() would block the
+            # dispatcher and silently drop all callbacks.
+            try:
+                page.wait_for_event("close", timeout=0)
+            except Exception:
+                pass  # page closed or browser disconnected — expected exit
 
     except KeyboardInterrupt:
         print("\n  Interrupted.")
