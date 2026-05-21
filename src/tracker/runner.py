@@ -66,19 +66,20 @@ class StepTracker:
 
 def _build_locator(page: Page, loc: Locator):
     if loc.css:
-        return page.locator(loc.css)
-    if loc.role:
+        el = page.locator(loc.css)
+    elif loc.role:
         kwargs: dict[str, Any] = {}
         if loc.name:
             kwargs["name"] = loc.name
         elif loc.name_contains:
             import re
-
             kwargs["name"] = re.compile(re.escape(loc.name_contains))
-        return page.get_by_role(loc.role, **kwargs)  # type: ignore[arg-type]
-    if loc.text:
-        return page.get_by_text(loc.text)
-    raise ValueError(f"Locator must specify css, role, or text: {loc!r}")
+        el = page.get_by_role(loc.role, **kwargs)  # type: ignore[arg-type]
+    elif loc.text:
+        el = page.get_by_text(loc.text)
+    else:
+        raise ValueError(f"Locator must specify css, role, or text: {loc!r}")
+    return el.first if loc.first else el
 
 
 def _settle(page: Page, settle: Settle | None) -> None:

@@ -1,0 +1,31 @@
+session: my-flow2
+start_url: https://tool.redoio.info/
+viewport:
+  width: 1280
+  height: 800
+consent:
+  strategy: ignore
+steps:
+- id: load_home
+  action: goto
+  url: https://tool.redoio.info/
+  wait_for: load
+  settle: {wait_ms: 3000}
+- id: fill_describe_your_needs_in_s
+  action: fill
+  locator: {role: textbox, name: Describe your needs in simple terms and we will suggest
+      the best tool for you.}
+  value: explore biased sentencing in my county
+  settle: {wait_ms: 1500}
+- id: click_go
+  action: click
+  locator: {role: button, name: Go}
+  settle: {wait_ms: 5000}
+- id: click_link_bias_analysis
+  action: click
+  locator: {role: link, name: Bias Analysis, first: true}
+  settle: {wait_ms: 3000}
+- id: click_load
+  action: click
+  locator: {role: button, name: Load}
+  settle: {wait_ms: 1500}

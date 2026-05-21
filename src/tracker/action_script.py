@@ -13,6 +13,7 @@ class Locator(BaseModel):
     name_contains: str | None = None
     text: str | None = None
     css: str | None = None
+    first: bool = False  # use .first when the locator matches multiple elements
 
 
 class Settle(BaseModel):
